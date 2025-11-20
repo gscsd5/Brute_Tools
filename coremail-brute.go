@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -70,15 +71,42 @@ func (t *CoremailLoginTester) TestLogin(username, password string) (bool, error)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", t.UserAgent)
 
+	// 恢复 http.Client 的默认行为，让其自动跟随302跳转
+	t.HttpClient.CheckRedirect = nil
+
 	resp, err := t.HttpClient.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("请求失败: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// 检查登录是否成功，通常成功的登录会返回一个Set-Cookie头
-	for _, cookie := range resp.Cookies() {
-		if strings.Contains(cookie.Name, "Coremail") {
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, fmt.Errorf("读取响应体失败: %v", err)
+	}
+	bodyString := string(bodyBytes)
+
+	// 登录失败后，页面通常会包含明确的错误信息，且URL不会跳转到主页
+	failureKeywords := []string{"密码错误", "用户不存在", "验证码不正确", "帐号或密码错误"}
+	for _, keyword := range failureKeywords {
+		if strings.Contains(bodyString, keyword) {
+			return false, nil // 明确的登录失败
+		}
+	}
+
+	// 登录成功后，会跳转到主页，URL会包含特定标识
+	finalURL := resp.Request.URL.String()
+	if strings.Contains(finalURL, "main.jsp") || strings.Contains(finalURL, "sid=") {
+		// 进一步确认页面内容，防止误判
+		if !strings.Contains(bodyString, "密码错误") {
+			return true, nil
+		}
+	}
+
+	// 作为最终的辅助判断，检查页面是否包含成功登录的关键字
+	successKeywords := []string{"收件箱", "写信", "通讯录", "退出"}
+	for _, keyword := range successKeywords {
+		if strings.Contains(bodyString, keyword) {
 			return true, nil
 		}
 	}
