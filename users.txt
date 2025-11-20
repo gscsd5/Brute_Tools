@@ -1,0 +1,14 @@
+admin
+administrator
+root
+test
+user
+guest
+support
+webmaster
+info
+contact
+mail
+office
+admin@example.com
+test@example.com
